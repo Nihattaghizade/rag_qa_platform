@@ -11,6 +11,8 @@ import {
   Sun,
   Moon,
   Sparkles,
+  Settings,
+  ShieldAlert,
 } from "lucide-react";
 import { useAppStore } from "@/store/useAppStore";
 
@@ -32,11 +34,11 @@ export function Navbar() {
   ).length;
 
   return (
-    <header className="border-b border-slate-200 dark:border-slate-800 bg-white/85 dark:bg-slate-900/85 backdrop-blur sticky top-0 z-30 transition-colors">
+    <header className="border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-slate-900/90 backdrop-blur sticky top-0 z-30 transition-colors">
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
         <div className="flex items-center gap-6">
           <Link
-            href="/"
+            href={user ? "/files" : "/"}
             className="flex items-center gap-2.5 font-bold text-slate-900 dark:text-white hover:opacity-90 transition"
           >
             <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">
@@ -46,7 +48,7 @@ export function Navbar() {
           </Link>
 
           {user && (
-            <nav className="flex items-center gap-2">
+            <nav className="flex items-center gap-1.5">
               <Link
                 href="/files"
                 className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition ${
@@ -82,6 +84,32 @@ export function Navbar() {
                   </span>
                 )}
               </Link>
+
+              <Link
+                href="/settings"
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition ${
+                  pathname.startsWith("/settings")
+                    ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30"
+                    : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                }`}
+              >
+                <Settings className="w-4 h-4" />
+                <span>Usage & Settings</span>
+              </Link>
+
+              {user.role === "admin" && (
+                <Link
+                  href="/admin"
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition ${
+                    pathname.startsWith("/admin")
+                      ? "bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30"
+                      : "text-purple-600 dark:text-purple-300 hover:bg-purple-500/10"
+                  }`}
+                >
+                  <ShieldAlert className="w-4 h-4" />
+                  <span>Admin Control</span>
+                </Link>
+              )}
             </nav>
           )}
         </div>
@@ -102,9 +130,14 @@ export function Navbar() {
 
           {user ? (
             <>
-              <span className="text-xs font-medium text-slate-500 dark:text-slate-400 hidden md:inline">
-                {user.full_name} ({user.email})
-              </span>
+              <div className="hidden md:flex flex-col items-end">
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                  {user.full_name}
+                </span>
+                <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                  {user.email} • {user.role.toUpperCase()}
+                </span>
+              </div>
               <button
                 onClick={() => {
                   clearAuth();

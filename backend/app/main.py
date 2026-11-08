@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routers import auth, chats, files, streams
+from app.api.routers import admin, auth, chats, files, streams, users
 from app.clients.kafka_client import close_kafka_producer
 from app.clients.qdrant_client import init_qdrant_collection
 from app.clients.s3_client import ensure_bucket_exists
@@ -38,6 +38,8 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
+app.include_router(users.router, prefix=settings.API_V1_PREFIX)
+app.include_router(admin.router, prefix=settings.API_V1_PREFIX)
 app.include_router(files.router, prefix=settings.API_V1_PREFIX)
 app.include_router(chats.router, prefix=settings.API_V1_PREFIX)
 app.include_router(streams.router, prefix=settings.API_V1_PREFIX)

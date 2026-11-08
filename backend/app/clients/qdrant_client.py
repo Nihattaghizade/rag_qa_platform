@@ -78,3 +78,17 @@ def delete_file_vectors(user_id: str, file_id: str) -> None:
             )
         ),
     )
+
+
+def delete_user_vectors(user_id: str) -> None:
+    client = get_qdrant_client()
+    client.delete(
+        collection_name=settings.QDRANT_COLLECTION_NAME,
+        points_selector=models.FilterSelector(
+            filter=models.Filter(
+                must=[
+                    models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id)),
+                ]
+            )
+        ),
+    )

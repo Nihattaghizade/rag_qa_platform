@@ -5,9 +5,71 @@ export interface UserDTO {
   id: string;
   email: string;
   full_name: string;
+  role: "user" | "admin";
+  max_files: number;
+  max_questions: number;
   storage_quota_bytes: number;
   storage_used_bytes: number;
   created_at: string;
+}
+
+export interface UserUsageTelemetryDTO {
+  user_id: string;
+  email: string;
+  full_name: string;
+  role: string;
+  files_used: number;
+  max_files: number;
+  questions_used: number;
+  max_questions: number;
+  storage_used_bytes: number;
+  storage_quota_bytes: number;
+  total_chat_sessions: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  avg_latency_ms: number;
+  recent_activity: {
+    id: string;
+    status: string;
+    query_mode: string;
+    rewritten_query: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    latency_ms: number | null;
+    citations_count: number;
+    created_at: string;
+  }[];
+}
+
+export interface AdminUserSummaryDTO {
+  id: string;
+  email: string;
+  full_name: string;
+  role: "user" | "admin";
+  is_active: boolean;
+  files_used: number;
+  max_files: number;
+  questions_used: number;
+  max_questions: number;
+  total_chunks: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  storage_used_bytes: number;
+  created_at: string;
+}
+
+export interface AdminDashboardOverviewDTO {
+  total_users: number;
+  total_files: number;
+  total_chunks: number;
+  total_questions_asked: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  users: AdminUserSummaryDTO[];
 }
 
 export interface FileRecordDTO {
@@ -15,6 +77,9 @@ export interface FileRecordDTO {
   filename: string;
   mime_type: string;
   size_bytes: number;
+  s3_bucket: string;
+  s3_key: string;
+  content_sha256: string;
   status: string;
   progress_pct: number;
   total_pages: number | null;
@@ -22,6 +87,21 @@ export interface FileRecordDTO {
   error_message: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface ChunkPreviewDTO {
+  id: string;
+  chunk_index: number;
+  page_number: number;
+  section_heading: string | null;
+  token_count: number;
+  parent_text: string;
+  child_text: string;
+}
+
+export interface FileDetailedInspectionDTO {
+  file: FileRecordDTO;
+  chunks: ChunkPreviewDTO[];
 }
 
 export interface CitationDTO {

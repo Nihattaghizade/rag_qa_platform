@@ -5,22 +5,17 @@ DROP TABLE IF EXISTS chat_sessions CASCADE;
 DROP TABLE IF EXISTS document_chunks CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
 DROP TABLE IF EXISTS refresh_tokens CASCADE;
-DROP TABLE IF EXISTS message_feedback CASCADE;
-DROP TABLE IF EXISTS ragas_evaluations CASCADE;
-DROP TABLE IF EXISTS audit_token_ledger CASCADE;
-DROP TABLE IF EXISTS document_parent_chunks CASCADE;
-DROP TABLE IF EXISTS file_ingestion_jobs CASCADE;
-DROP TABLE IF EXISTS user_files CASCADE;
-DROP TABLE IF EXISTS user_sessions CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
-DROP TABLE IF EXISTS tenants CASCADE;
 
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email VARCHAR(255) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
     full_name VARCHAR(120) NOT NULL,
+    role VARCHAR(24) NOT NULL DEFAULT 'user',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    max_files INTEGER NOT NULL DEFAULT 3,
+    max_questions INTEGER NOT NULL DEFAULT 10,
     storage_quota_bytes BIGINT NOT NULL DEFAULT 5368709120,
     storage_used_bytes BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -132,7 +127,6 @@ CREATE POLICY rls_chat_sessions_tenant ON chat_sessions
 CREATE POLICY rls_chat_messages_tenant ON chat_messages
     USING (user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid)
     WITH CHECK (user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid);
-
 
 
 

@@ -1,9 +1,11 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import delete, func, select
 
 from app.api.deps import CurrentUserContext, get_current_user
 from app.db.session import get_tenant_db_session
+from app.models.entities import ChatMessage, ChatSession, User
 from app.repositories.chat_repo import ChatRepository
 from app.schemas.dto import (
     ChatCreateRequest,
@@ -42,6 +44,20 @@ async def list_chat_sessions(
         return [ChatSessionResponse.model_validate(s) for s in sessions]
 
 
+@router.delete("/{chat_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_chat_session(
+    chat_id: UUID,
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> None:
+    async with get_tenant_db_session(current_user.user_id) as session:
+        await session.execute(
+            delete(ChatSession).where(
+                ChatSession.id == chat_id,
+                ChatSession.user_id == current_user.user_id,
+            )
+        )
+
+
 @router.get("/{chat_id}/messages", response_model=list[ChatMessageResponse])
 async def list_chat_messages(
     chat_id: UUID,
@@ -67,6 +83,24 @@ async def submit_chat_message(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> ChatMessageSubmitResponse:
     async with get_tenant_db_session(current_user.user_id) as session:
+        user_res = await session.execute(select(User).where(User.id == current_user.user_id))
+        user_obj = user_res.scalar_one_or_none()
+        if not user_obj:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+        q_count_res = await session.execute(
+            select(func.count(ChatMessage.id)).where(
+                ChatMessage.user_id == current_user.user_id,
+                ChatMessage.role == "user",
+            )
+        )
+        questions_used = int(q_count_res.scalar() or 0)
+        if questions_used >= user_obj.max_questions:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Chat question limit reached ({questions_used}/{user_obj.max_questions} questions). Contact Admin to increase your question limit.",
+            )
+
         repo = ChatRepository(session)
         chat = await repo.get_session(user_id=current_user.user_id, chat_id=chat_id)
         if not chat:

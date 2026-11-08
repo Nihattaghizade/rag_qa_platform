@@ -16,6 +16,11 @@ class UserLoginRequest(BaseModel):
     password: str
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -29,9 +34,66 @@ class UserResponse(BaseModel):
     id: UUID
     email: EmailStr
     full_name: str
+    role: str
+    max_files: int
+    max_questions: int
     storage_quota_bytes: int
     storage_used_bytes: int
     created_at: datetime
+
+
+class UserUsageTelemetryResponse(BaseModel):
+    user_id: UUID
+    email: str
+    full_name: str
+    role: str
+    files_used: int
+    max_files: int
+    questions_used: int
+    max_questions: int
+    storage_used_bytes: int
+    storage_quota_bytes: int
+    total_chat_sessions: int
+    total_prompt_tokens: int
+    total_completion_tokens: int
+    total_tokens: int
+    avg_latency_ms: float
+    recent_activity: list[dict[str, Any]]
+
+
+class AdminUserUpdateLimitsRequest(BaseModel):
+    max_files: int = Field(ge=0, le=100000)
+    max_questions: int = Field(ge=0, le=1000000)
+    role: Literal["user", "admin"] | None = None
+
+
+class AdminUserSummaryItem(BaseModel):
+    id: UUID
+    email: str
+    full_name: str
+    role: str
+    is_active: bool
+    files_used: int
+    max_files: int
+    questions_used: int
+    max_questions: int
+    total_chunks: int
+    total_prompt_tokens: int
+    total_completion_tokens: int
+    total_tokens: int
+    storage_used_bytes: int
+    created_at: datetime
+
+
+class AdminDashboardOverviewResponse(BaseModel):
+    total_users: int
+    total_files: int
+    total_chunks: int
+    total_questions_asked: int
+    total_prompt_tokens: int
+    total_completion_tokens: int
+    total_tokens: int
+    users: list[AdminUserSummaryItem]
 
 
 class FileUploadInitRequest(BaseModel):
@@ -76,6 +138,9 @@ class FileRecordResponse(BaseModel):
     filename: str
     mime_type: str
     size_bytes: int
+    s3_bucket: str
+    s3_key: str
+    content_sha256: str
     status: str
     progress_pct: int
     total_pages: int | None
@@ -83,6 +148,21 @@ class FileRecordResponse(BaseModel):
     error_message: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class ChunkPreviewItem(BaseModel):
+    id: UUID
+    chunk_index: int
+    page_number: int
+    section_heading: str | None
+    token_count: int
+    parent_text: str
+    child_text: str
+
+
+class FileDetailedInspectionResponse(BaseModel):
+    file: FileRecordResponse
+    chunks: list[ChunkPreviewItem]
 
 
 class CitationItem(BaseModel):

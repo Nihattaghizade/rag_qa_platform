@@ -4,6 +4,7 @@ import uuid
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from sqlalchemy import func, select
 
 from app.api.deps import CurrentUserContext, get_current_user
 from app.clients.kafka_client import publish_kafka_event
@@ -18,10 +19,13 @@ from app.clients.s3_client import (
 )
 from app.core.config import settings
 from app.db.session import get_tenant_db_session
+from app.models.entities import DocumentChunk, FileRecord, User
 from app.rag.semantic_cache import FourTierSemanticCache
 from app.repositories.file_repo import FileRepository
 from app.repositories.user_repo import UserRepository
 from app.schemas.dto import (
+    ChunkPreviewItem,
+    FileDetailedInspectionResponse,
     FileRecordResponse,
     FileUploadCompleteRequest,
     FileUploadInitRequest,
@@ -31,6 +35,23 @@ from app.schemas.dto import (
 from app.workers.parser_worker import parse_and_chunk_document_task
 
 router = APIRouter(prefix="/files", tags=["Files & Ingestion"])
+
+
+async def _enforce_file_upload_quota(session, user_id: UUID) -> None:
+    user_res = await session.execute(select(User).where(User.id == user_id))
+    user_obj = user_res.scalar_one_or_none()
+    if not user_obj:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    count_res = await session.execute(
+        select(func.count(FileRecord.id)).where(FileRecord.user_id == user_id)
+    )
+    current_files = int(count_res.scalar() or 0)
+    if current_files >= user_obj.max_files:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"File upload limit reached ({current_files}/{user_obj.max_files} files). Delete an existing file or contact Admin to increase your limit.",
+        )
 
 
 @router.post("/upload/init", response_model=FileUploadInitResponse)
@@ -54,6 +75,9 @@ async def init_multipart_file_upload(
                 part_size_bytes=PART_SIZE_BYTES,
                 parts=[],
             )
+
+        if not existing:
+            await _enforce_file_upload_quota(session, current_user.user_id)
 
         file_id = existing.id if existing else uuid.uuid4()
         safe_name = payload.filename.replace(" ", "_")
@@ -159,6 +183,9 @@ async def direct_file_upload(
         if existing and existing.status == "READY":
             return FileRecordResponse.model_validate(existing)
 
+        if not existing:
+            await _enforce_file_upload_quota(session, current_user.user_id)
+
         file_id = existing.id if existing else uuid.uuid4()
         safe_name = filename.replace(" ", "_")
         s3_key = f"tenants/{current_user.user_id}/files/{file_id}/{safe_name}"
@@ -175,7 +202,7 @@ async def direct_file_upload(
         await asyncio.to_thread(_put_obj)
 
         if not existing:
-            record = await file_repo.create_file_record(
+            await file_repo.create_file_record(
                 file_id=file_id,
                 user_id=current_user.user_id,
                 filename=filename,
@@ -207,6 +234,43 @@ async def list_files(
         repo = FileRepository(session)
         files = await repo.list_user_files(current_user.user_id)
         return [FileRecordResponse.model_validate(f) for f in files]
+
+
+@router.get("/{file_id}/details", response_model=FileDetailedInspectionResponse)
+async def get_file_details(
+    file_id: UUID,
+    current_user: CurrentUserContext = Depends(get_current_user),
+) -> FileDetailedInspectionResponse:
+    async with get_tenant_db_session(current_user.user_id) as session:
+        repo = FileRepository(session)
+        record = await repo.get_by_id(current_user.user_id, file_id)
+        if not record:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+        stmt = (
+            select(DocumentChunk)
+            .where(DocumentChunk.file_id == file_id, DocumentChunk.user_id == current_user.user_id)
+            .order_by(DocumentChunk.chunk_index.asc())
+            .limit(50)
+        )
+        res = await session.execute(stmt)
+        chunks = list(res.scalars().all())
+
+        return FileDetailedInspectionResponse(
+            file=FileRecordResponse.model_validate(record),
+            chunks=[
+                ChunkPreviewItem(
+                    id=c.id,
+                    chunk_index=c.chunk_index,
+                    page_number=c.page_number,
+                    section_heading=c.section_heading,
+                    token_count=c.token_count,
+                    parent_text=c.parent_text,
+                    child_text=c.child_text,
+                )
+                for c in chunks
+            ],
+        )
 
 
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)

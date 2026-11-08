@@ -33,6 +33,8 @@ export function Navbar() {
     (f) => f.status !== "READY" && f.status !== "FAILED"
   ).length;
 
+  const userRole = user?.role || "user";
+
   return (
     <header className="border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-slate-900/90 backdrop-blur sticky top-0 z-30 transition-colors">
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
@@ -94,10 +96,10 @@ export function Navbar() {
                 }`}
               >
                 <Settings className="w-4 h-4" />
-                <span>Usage & Settings</span>
+                <span>Usage &amp; Settings</span>
               </Link>
 
-              {user.role === "admin" && (
+              {userRole === "admin" && (
                 <Link
                   href="/admin"
                   className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition ${
@@ -135,7 +137,7 @@ export function Navbar() {
                   {user.full_name}
                 </span>
                 <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                  {user.email} • {user.role.toUpperCase()}
+                  {user.email} • {userRole.toUpperCase()}
                 </span>
               </div>
               <button

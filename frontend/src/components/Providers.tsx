@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, apiRequest, UserDTO } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 
 function ThemeSynchronizer() {
@@ -23,6 +23,8 @@ function ThemeSynchronizer() {
 function GlobalStreamManager() {
   const queryClient = useQueryClient();
   const accessToken = useAppStore((s) => s.accessToken);
+  const setAuth = useAppStore((s) => s.setAuth);
+  const clearAuth = useAppStore((s) => s.clearAuth);
   const liveStreams = useAppStore((s) => s.liveStreams);
   const upsertFileProgress = useAppStore((s) => s.upsertFileProgress);
   const appendStreamToken = useAppStore((s) => s.appendStreamToken);
@@ -31,6 +33,17 @@ function GlobalStreamManager() {
   const failLiveStream = useAppStore((s) => s.failLiveStream);
 
   const activeChatSourcesRef = useRef<Record<string, EventSource>>({});
+
+  useEffect(() => {
+    if (!accessToken) return;
+    apiRequest<UserDTO>("/auth/me", {}, accessToken)
+      .then((freshUser) => {
+        setAuth(accessToken, freshUser);
+      })
+      .catch(() => {
+        clearAuth();
+      });
+  }, [accessToken, setAuth, clearAuth]);
 
   useEffect(() => {
     if (!accessToken) return;

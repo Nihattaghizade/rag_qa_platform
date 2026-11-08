@@ -33,8 +33,8 @@ class TwoStageHybridRetriever:
         user_id: UUID,
         query: str,
         scoped_file_ids: list[UUID] | None = None,
-        prefetch_limit: int = 25,
-        top_k: int = 6,
+        prefetch_limit: int = 10,
+        top_k: int = 4,
     ) -> list[RetrievedContextChunk]:
         dense_vec = LocalONNXModelRegistry.embed_dense_batch([query])[0]
         sparse_vec = LocalONNXModelRegistry.embed_sparse_batch([query])[0]
@@ -75,7 +75,7 @@ class TwoStageHybridRetriever:
                 ),
             ],
             query=models.FusionQuery(fusion=models.Fusion.RRF),
-            limit=prefetch_limit,
+            limit=8,
             with_payload=True,
         )
 
@@ -87,11 +87,11 @@ class TwoStageHybridRetriever:
         db_chunks = await self.file_repo.get_chunks_by_ids(user_id=user_id, chunk_ids=candidate_ids)
         chunk_map = {c.id: c for c in db_chunks}
 
-        ordered_chunks = [chunk_map[cid] for cid in candidate_ids if cid in chunk_map]
+        ordered_chunks = [chunk_map[cid] for cid in candidate_ids if cid in chunk_map][:8]
         if not ordered_chunks:
             return []
 
-        candidate_texts = [c.child_text for c in ordered_chunks]
+        candidate_texts = [c.child_text[:450] for c in ordered_chunks]
         rerank_scores = LocalONNXModelRegistry.rerank_pairs(query, candidate_texts)
 
         scored_pairs = sorted(

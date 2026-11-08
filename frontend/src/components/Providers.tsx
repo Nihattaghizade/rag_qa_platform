@@ -1,10 +1,10 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
-import { API_BASE_URL, apiRequest, UserDTO } from "@/lib/api";
+import { API_BASE_URL, apiRequest, trySilentRefresh, UserDTO } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 
 function ThemeAndNavigationController() {
@@ -42,8 +42,11 @@ function ThemeAndNavigationController() {
 
 function GlobalStreamManager() {
   const queryClient = useQueryClient();
+  const router = useRouter();
+  const pathname = usePathname();
   const accessToken = useAppStore((s) => s.accessToken);
   const setAuth = useAppStore((s) => s.setAuth);
+  const clearAuth = useAppStore((s) => s.clearAuth);
   const liveStreams = useAppStore((s) => s.liveStreams);
   const upsertFileProgress = useAppStore((s) => s.upsertFileProgress);
   const removeFileProgress = useAppStore((s) => s.removeFileProgress);
@@ -52,19 +55,49 @@ function GlobalStreamManager() {
   const completeLiveStream = useAppStore((s) => s.completeLiveStream);
   const failLiveStream = useAppStore((s) => s.failLiveStream);
 
+  const [sessionVerified, setSessionVerified] = useState(false);
   const activeChatSourcesRef = useRef<Record<string, EventSource>>({});
 
   useEffect(() => {
-    if (!accessToken) return;
-    apiRequest<UserDTO>("/auth/me", {}, accessToken)
-      .then((freshUser) => {
-        setAuth(accessToken, freshUser);
-      })
-      .catch(() => {});
-  }, [accessToken, setAuth]);
+    let cancelled = false;
+
+    async function verifyOrRefreshSession() {
+      if (!accessToken) {
+        const refreshed = await trySilentRefresh();
+        if (!cancelled && refreshed?.access_token) {
+          setAuth(refreshed.access_token, refreshed.user);
+          setSessionVerified(true);
+        } else if (!cancelled) {
+          setSessionVerified(false);
+        }
+        return;
+      }
+
+      try {
+        const freshUser = await apiRequest<UserDTO>("/auth/me", {}, accessToken);
+        if (!cancelled) {
+          setAuth(useAppStore.getState().accessToken || accessToken, freshUser);
+          setSessionVerified(true);
+        }
+      } catch {
+        if (!cancelled) {
+          clearAuth();
+          setSessionVerified(false);
+          if (pathname !== "/" && pathname !== "/login") {
+            router.replace("/login");
+          }
+        }
+      }
+    }
+
+    verifyOrRefreshSession();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, setAuth, clearAuth, pathname, router]);
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken || !sessionVerified) return;
     const url = `${API_BASE_URL}/streams/files?token=${encodeURIComponent(accessToken)}`;
     const es = new EventSource(url);
 
@@ -83,17 +116,17 @@ function GlobalStreamManager() {
           });
         }
         queryClient.invalidateQueries({ queryKey: ["files"] });
-        queryClient.invalidateQueries({ queryKey: ["my_usage"] });
+        queryClient.invalidateQueries({ queryKey: ["my-usage"] });
       } catch {}
     });
 
     return () => {
       es.close();
     };
-  }, [accessToken, upsertFileProgress, removeFileProgress, queryClient]);
+  }, [accessToken, sessionVerified, upsertFileProgress, removeFileProgress, queryClient]);
 
   useEffect(() => {
-    if (!accessToken) return;
+    if (!accessToken || !sessionVerified) return;
 
     Object.values(liveStreams).forEach((streamItem) => {
       const msgId = streamItem.assistantMessageId;
@@ -118,7 +151,7 @@ function GlobalStreamManager() {
       es.addEventListener("meta", (e) => {
         try {
           const d = JSON.parse((e as MessageEvent).data);
-          setStreamMeta(msgId, d.query_mode, d.rewrittenQuery);
+          setStreamMeta(msgId, d.query_mode, d.rewritten_query);
         } catch {}
       });
 
@@ -139,7 +172,7 @@ function GlobalStreamManager() {
             queryKey: ["messages", streamItem.chatId],
           });
           queryClient.invalidateQueries({ queryKey: ["chats"] });
-          queryClient.invalidateQueries({ queryKey: ["my_usage"] });
+          queryClient.invalidateQueries({ queryKey: ["my-usage"] });
         } catch {}
         es.close();
         delete activeChatSourcesRef.current[msgId];
@@ -157,6 +190,7 @@ function GlobalStreamManager() {
     });
   }, [
     accessToken,
+    sessionVerified,
     liveStreams,
     appendStreamToken,
     setStreamMeta,
@@ -176,6 +210,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
           queries: {
             staleTime: 10000,
             refetchOnWindowFocus: false,
+            retry: 1,
           },
         },
       })

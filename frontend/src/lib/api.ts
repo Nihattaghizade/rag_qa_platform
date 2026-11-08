@@ -1,75 +1,23 @@
 export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000/api/v1";
+  process.env.NEXT_PUBLIC_API_V1_URL || "http://localhost:8000/api/v1";
 
 export interface UserDTO {
   id: string;
   email: string;
   full_name: string;
-  role: "user" | "admin";
-  max_files: number;
-  max_questions: number;
-  storage_quota_bytes: number;
-  storage_used_bytes: number;
-  created_at: string;
-}
-
-export interface UserUsageTelemetryDTO {
-  user_id: string;
-  email: string;
-  full_name: string;
   role: string;
-  files_used: number;
   max_files: number;
-  questions_used: number;
   max_questions: number;
-  storage_used_bytes: number;
   storage_quota_bytes: number;
-  total_chat_sessions: number;
-  total_prompt_tokens: number;
-  total_completion_tokens: number;
-  total_tokens: number;
-  avg_latency_ms: number;
-  recent_activity: {
-    id: string;
-    status: string;
-    query_mode: string;
-    rewritten_query: string;
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-    latency_ms: number | null;
-    citations_count: number;
-    created_at: string;
-  }[];
-}
-
-export interface AdminUserSummaryDTO {
-  id: string;
-  email: string;
-  full_name: string;
-  role: "user" | "admin";
-  is_active: boolean;
-  files_used: number;
-  max_files: number;
-  questions_used: number;
-  max_questions: number;
-  total_chunks: number;
-  total_prompt_tokens: number;
-  total_completion_tokens: number;
-  total_tokens: number;
   storage_used_bytes: number;
   created_at: string;
 }
 
-export interface AdminDashboardOverviewDTO {
-  total_users: number;
-  total_files: number;
-  total_chunks: number;
-  total_questions_asked: number;
-  total_prompt_tokens: number;
-  total_completion_tokens: number;
-  total_tokens: number;
-  users: AdminUserSummaryDTO[];
+export interface AuthTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user: UserDTO;
 }
 
 export interface FileRecordDTO {
@@ -77,9 +25,6 @@ export interface FileRecordDTO {
   filename: string;
   mime_type: string;
   size_bytes: number;
-  s3_bucket: string;
-  s3_key: string;
-  content_sha256: string;
   status: string;
   progress_pct: number;
   total_pages: number | null;
@@ -89,7 +34,7 @@ export interface FileRecordDTO {
   updated_at: string;
 }
 
-export interface ChunkPreviewDTO {
+export interface ChunkPreviewItemDTO {
   id: string;
   chunk_index: number;
   page_number: number;
@@ -101,7 +46,7 @@ export interface ChunkPreviewDTO {
 
 export interface FileDetailedInspectionDTO {
   file: FileRecordDTO;
-  chunks: ChunkPreviewDTO[];
+  chunks: ChunkPreviewItemDTO[];
 }
 
 export interface CitationDTO {
@@ -110,7 +55,7 @@ export interface CitationDTO {
   file_id: string;
   filename: string;
   page_number: number;
-  section_heading?: string | null;
+  section_heading: string | null;
   rerank_score: number;
   excerpt: string;
 }
@@ -140,32 +85,150 @@ export interface ChatMessageDTO {
   created_at: string;
 }
 
+export interface ChatSubmitResponseDTO {
+  user_message_id: string;
+  assistant_message_id: string;
+  chat_id: string;
+  status: string;
+  stream_channel: string;
+}
+
+export interface UserUsageTelemetryDTO {
+  user_id: string;
+  email: string;
+  full_name: string;
+  role: string;
+  files_used: number;
+  max_files: number;
+  questions_used: number;
+  max_questions: number;
+  storage_used_bytes: number;
+  storage_quota_bytes: number;
+  total_chat_sessions: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  avg_latency_ms: number;
+  recent_activity: Array<{
+    id: string;
+    status: string;
+    query_mode: string;
+    rewritten_query: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    latency_ms: number | null;
+    citations_count: number;
+    created_at: string;
+  }>;
+}
+
+export interface AdminUserSummaryDTO {
+  id: string;
+  email: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+  files_used: number;
+  max_files: number;
+  questions_used: number;
+  max_questions: number;
+  total_chunks: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  storage_used_bytes: number;
+  created_at: string;
+}
+
+export interface AdminDashboardOverviewDTO {
+  total_users: number;
+  total_files: number;
+  total_chunks: number;
+  total_questions_asked: number;
+  total_prompt_tokens: number;
+  total_completion_tokens: number;
+  total_tokens: number;
+  users: AdminUserSummaryDTO[];
+}
+
+let refreshPromise: Promise<AuthTokenResponse | null> | null = null;
+
+export async function trySilentRefresh(): Promise<AuthTokenResponse | null> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      const resp = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!resp.ok) return null;
+      return (await resp.json()) as AuthTokenResponse;
+    } catch {
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
-  token?: string | null
+  accessToken?: string | null
 ): Promise<T> {
-  const headers = new Headers(options.headers || {});
-  if (!headers.has("Content-Type") && !(options.body instanceof FormData)) {
-    headers.set("Content-Type", "application/json");
-  }
-  if (token) {
-    headers.set("Authorization", `Bearer ${token}`);
-  }
+  const buildHeaders = (token?: string | null) => {
+    const h = new Headers(options.headers || {});
+    if (token) {
+      h.set("Authorization", `Bearer ${token}`);
+    }
+    if (!(options.body instanceof FormData) && !h.has("Content-Type")) {
+      h.set("Content-Type", "application/json");
+    }
+    return h;
+  };
 
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  let resp = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    headers,
+    headers: buildHeaders(accessToken),
     credentials: "include",
   });
 
-  if (!response.ok) {
-    const errBody = await response.json().catch(() => ({}));
-    throw new Error(errBody.detail || `Request failed: ${response.status}`);
+  if (
+    resp.status === 401 &&
+    !path.startsWith("/auth/login") &&
+    !path.startsWith("/auth/register") &&
+    !path.startsWith("/auth/refresh")
+  ) {
+    const refreshed = await trySilentRefresh();
+    if (refreshed?.access_token) {
+      if (typeof window !== "undefined") {
+        const { useAppStore } = await import("@/store/useAppStore");
+        useAppStore.getState().setAuth(refreshed.access_token, refreshed.user);
+      }
+      resp = await fetch(`${API_BASE_URL}${path}`, {
+        ...options,
+        headers: buildHeaders(refreshed.access_token),
+        credentials: "include",
+      });
+    } else if (typeof window !== "undefined") {
+      const { useAppStore } = await import("@/store/useAppStore");
+      useAppStore.getState().clearAuth();
+      if (window.location.pathname !== "/login" && window.location.pathname !== "/") {
+        window.location.href = "/login";
+      }
+    }
   }
 
-  if (response.status === 204) {
+  if (resp.status === 204) {
     return undefined as T;
   }
-  return response.json() as Promise<T>;
+
+  if (!resp.ok) {
+    const errBody = await resp.json().catch(() => ({ detail: resp.statusText }));
+    throw new Error(errBody.detail || `HTTP ${resp.status}`);
+  }
+
+  return resp.json() as Promise<T>;
 }

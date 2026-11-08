@@ -1,4 +1,4 @@
-    from functools import lru_cache
+from functools import lru_cache
 from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Enterprise RAG QA Platform"
     API_V1_PREFIX: str = "/api/v1"
 
-    JWT_SECRET_KEY: str = "1229ffead95930b8abcc7572e29effd7e2d346a345945915be3414b358827f71"
+    JWT_SECRET_KEY: str = "change_this_to_a_64_char_random_hex_secret_in_production_2026"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7

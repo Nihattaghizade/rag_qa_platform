@@ -74,27 +74,31 @@ export default function FilesPage() {
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-white">Tenant Knowledge Base</h1>
-          <p className="text-sm text-slate-400">
-            Upload PDF or DOCX documents. Background parsing, 3-stage hybrid chunking, and ONNX INT8 indexing continue even if you switch to Chat.
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+            Tenant Knowledge Base
+          </h1>
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            Upload PDF or DOCX documents. Background parsing, 3-stage hybrid chunking, and byte-batched Qdrant indexing continue even if you switch to Chat.
           </p>
         </div>
 
         <button
           onClick={() => router.push("/chat")}
-          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold text-white flex items-center gap-2 self-start"
+          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold text-white flex items-center gap-2 self-start shadow-md shadow-emerald-600/20 transition"
         >
           <MessageSquare className="w-4 h-4" />
           <span>
             Open RAG Chat{" "}
-            {selectedFileIds.length > 0 ? `(${selectedFileIds.length} scoped)` : "(All Files)"}
+            {selectedFileIds.length > 0
+              ? `(${selectedFileIds.length} scoped)`
+              : "(All Files)"}
           </span>
         </button>
       </div>
 
       <div
         onClick={() => fileInputRef.current?.click()}
-        className="border-2 border-dashed border-slate-700 hover:border-emerald-500/60 bg-slate-900/50 rounded-2xl p-8 text-center cursor-pointer transition"
+        className="border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500/60 bg-white dark:bg-slate-900/50 rounded-2xl p-8 text-center cursor-pointer transition"
       >
         <input
           ref={fileInputRef}
@@ -104,27 +108,27 @@ export default function FilesPage() {
           className="hidden"
           onChange={(e) => handleFileUpload(e.target.files)}
         />
-        <UploadCloud className="w-10 h-10 text-emerald-400 mx-auto mb-3" />
-        <p className="text-sm font-medium text-slate-200">
+        <UploadCloud className="w-10 h-10 text-emerald-500 mx-auto mb-3" />
+        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
           Click to select PDF or DOCX files (Background Web Worker Upload)
         </p>
-        <p className="text-xs text-slate-400 mt-1">
-          SHA-256 deduplicated • Isolated per tenant • Automatic BAAI/bge + BM25 Hybrid Indexing
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+          SHA-256 deduplicated • Isolated per tenant • Dynamic &lt;15MB Qdrant Batch Upserts
         </p>
       </div>
 
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-200">
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
             Uploaded Documents ({files.length})
           </h2>
-          <span className="text-xs text-slate-400">
+          <span className="text-xs text-slate-500 dark:text-slate-400">
             Check documents to scope your next RAG conversation
           </span>
         </div>
 
         {isLoading ? (
-          <div className="p-8 text-center text-sm text-slate-400 flex items-center justify-center gap-2">
+          <div className="p-8 text-center text-sm text-slate-500 dark:text-slate-400 flex items-center justify-center gap-2">
             <Loader2 className="w-4 h-4 animate-spin" />
             <span>Loading documents...</span>
           </div>
@@ -133,7 +137,7 @@ export default function FilesPage() {
             No documents uploaded yet. Upload a PDF or DOCX above to begin.
           </div>
         ) : (
-          <div className="divide-y divide-slate-800">
+          <div className="divide-y divide-slate-200 dark:divide-slate-800">
             {files.map((file) => {
               const live = liveFileProgress[file.id];
               const status = live?.status || file.status;
@@ -144,7 +148,7 @@ export default function FilesPage() {
               return (
                 <div
                   key={file.id}
-                  className="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-800/40 transition"
+                  className="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition"
                 >
                   <div className="flex items-start gap-3.5">
                     <input
@@ -153,12 +157,12 @@ export default function FilesPage() {
                       onChange={() => toggleSelectedFileId(file.id)}
                       className="mt-1 w-4 h-4 rounded accent-emerald-500 cursor-pointer"
                     />
-                    <FileText className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                    <FileText className="w-5 h-5 text-emerald-500 shrink-0 mt-0.5" />
                     <div>
-                      <div className="text-sm font-medium text-white">
+                      <div className="text-sm font-medium text-slate-900 dark:text-white">
                         {file.filename}
                       </div>
-                      <div className="text-xs text-slate-400 flex flex-wrap items-center gap-3 mt-1">
+                      <div className="text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-3 mt-1">
                         <span>{(file.size_bytes / 1024).toFixed(1)} KB</span>
                         {file.total_pages && <span>{file.total_pages} pages</span>}
                         <span>{chunks} parent-child chunks</span>
@@ -169,19 +173,21 @@ export default function FilesPage() {
                   <div className="flex items-center gap-4">
                     <div className="w-44">
                       <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="font-medium text-slate-300 flex items-center gap-1.5">
+                        <span className="font-medium text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                           {status === "READY" ? (
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                           ) : status === "FAILED" ? (
-                            <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                            <AlertCircle className="w-3.5 h-3.5 text-red-500" />
                           ) : (
-                            <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                            <Loader2 className="w-3.5 h-3.5 text-amber-500 animate-spin" />
                           )}
                           {status}
                         </span>
-                        <span className="text-slate-400">{progress}%</span>
+                        <span className="text-slate-500 dark:text-slate-400">
+                          {progress}%
+                        </span>
                       </div>
-                      <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
                         <div
                           className={`h-full transition-all duration-300 ${
                             status === "READY"
@@ -197,7 +203,7 @@ export default function FilesPage() {
 
                     <button
                       onClick={() => handleDelete(file.id)}
-                      className="p-2 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800"
+                      className="p-2 rounded-lg text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800"
                       title="Delete file and vectors"
                     >
                       <Trash2 className="w-4 h-4" />

@@ -2,7 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  background-color: #090d16;
-  color: #f1f5f9;
+@layer base {
+  body {
+    @apply bg-slate-50 text-slate-900 dark:bg-[#090d16] dark:text-slate-100 transition-colors duration-200;
+  }
 }

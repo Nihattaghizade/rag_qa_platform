@@ -25,6 +25,7 @@ export interface LiveStreamingMessage {
 }
 
 interface AppState {
+  theme: "dark" | "light";
   accessToken: string | null;
   user: UserDTO | null;
   selectedFileIds: string[];
@@ -32,6 +33,7 @@ interface AppState {
   liveFileProgress: Record<string, LiveFileProgress>;
   liveStreams: Record<string, LiveStreamingMessage>;
 
+  toggleTheme: () => void;
   setAuth: (token: string, user: UserDTO) => void;
   clearAuth: () => void;
   toggleSelectedFileId: (fileId: string) => void;
@@ -56,6 +58,7 @@ interface AppState {
 export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
+      theme: "dark",
       accessToken: null,
       user: null,
       selectedFileIds: [],
@@ -63,16 +66,22 @@ export const useAppStore = create<AppState>()(
       liveFileProgress: {},
       liveStreams: {},
 
+      toggleTheme: () =>
+        set((state) => ({
+          theme: state.theme === "dark" ? "light" : "dark",
+        })),
+
       setAuth: (token, user) => set({ accessToken: token, user }),
       clearAuth: () =>
-        set({
+        set((state) => ({
+          theme: state.theme,
           accessToken: null,
           user: null,
           selectedFileIds: [],
           activeChatId: null,
           liveFileProgress: {},
           liveStreams: {},
-        }),
+        })),
 
       toggleSelectedFileId: (fileId) =>
         set((state) => ({
@@ -176,6 +185,7 @@ export const useAppStore = create<AppState>()(
     {
       name: "enterprise-rag-storage",
       partialize: (state) => ({
+        theme: state.theme,
         accessToken: state.accessToken,
         user: state.user,
         selectedFileIds: state.selectedFileIds,

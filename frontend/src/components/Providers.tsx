@@ -5,6 +5,21 @@ import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/reac
 import { API_BASE_URL } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 
+function ThemeSynchronizer() {
+  const theme = useAppStore((s) => s.theme);
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "dark") {
+      root.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+    }
+  }, [theme]);
+
+  return null;
+}
+
 function GlobalStreamManager() {
   const queryClient = useQueryClient();
   const accessToken = useAppStore((s) => s.accessToken);
@@ -67,7 +82,7 @@ function GlobalStreamManager() {
       es.addEventListener("meta", (e) => {
         try {
           const d = JSON.parse((e as MessageEvent).data);
-          setStreamMeta(msgId, d.query_mode, d.rewritten_query);
+          setStreamMeta(msgId, d.query_mode, d.rewrittenQuery);
         } catch {}
       });
 
@@ -131,6 +146,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
 
   return (
     <QueryClientProvider client={queryClient}>
+      <ThemeSynchronizer />
       <GlobalStreamManager />
       {children}
     </QueryClientProvider>

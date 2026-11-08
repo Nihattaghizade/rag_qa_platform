@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Enterprise RAG QA Platform"
     API_V1_PREFIX: str = "/api/v1"
 
-    JWT_SECRET_KEY: str = "change_this_to_a_64_char_random_hex_secret_in_production_2026"
+    JWT_SECRET_KEY: str = "1229ffead95930b8abcc7572e29effd7e2d346a345945915be3414b358827f71"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -27,10 +27,10 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://rag_admin:rag_super_secret_password_2026@127.0.0.1:5435/enterprise_rag"
 
     REDIS_HOST: str = "127.0.0.1"
-    REDIS_PORT: int = 6379
-    REDIS_URL: str = "redis://127.0.0.1:6379/0"
-    CELERY_BROKER_URL: str = "redis://127.0.0.1:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://127.0.0.1:6379/2"
+    REDIS_PORT: int = 6385
+    REDIS_URL: str = "redis://127.0.0.1:6385/0"
+    CELERY_BROKER_URL: str = "redis://127.0.0.1:6385/1"
+    CELERY_RESULT_BACKEND: str = "redis://127.0.0.1:6385/2"
 
     KAFKA_BOOTSTRAP_SERVERS: str = "127.0.0.1:9092"
     KAFKA_TOPIC_INGEST_RAW: str = "doc.ingest.raw"

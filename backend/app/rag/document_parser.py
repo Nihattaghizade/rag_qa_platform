@@ -2,7 +2,7 @@ import io
 import re
 from dataclasses import dataclass
 
-import fitz
+import pymupdf as fitz
 from docx import Document as DocxDocument
 
 

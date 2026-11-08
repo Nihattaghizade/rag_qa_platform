@@ -21,30 +21,30 @@ class Settings(BaseSettings):
     POSTGRES_USER: str = "rag_admin"
     POSTGRES_PASSWORD: str = "rag_super_secret_password_2026"
     POSTGRES_DB: str = "enterprise_rag"
-    POSTGRES_HOST: str = "localhost"
-    POSTGRES_PORT: int = 5432
+    POSTGRES_HOST: str = "127.0.0.1"
+    POSTGRES_PORT: int = 5435
     PGBOUNCER_PORT: int = 6432
-    DATABASE_URL: str = "postgresql+asyncpg://rag_admin:rag_super_secret_password_2026@localhost:5432/enterprise_rag"
+    DATABASE_URL: str = "postgresql+asyncpg://rag_admin:rag_super_secret_password_2026@127.0.0.1:5435/enterprise_rag"
 
-    REDIS_HOST: str = "localhost"
+    REDIS_HOST: str = "127.0.0.1"
     REDIS_PORT: int = 6379
-    REDIS_URL: str = "redis://localhost:6379/0"
-    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
+    REDIS_URL: str = "redis://127.0.0.1:6379/0"
+    CELERY_BROKER_URL: str = "redis://127.0.0.1:6379/1"
+    CELERY_RESULT_BACKEND: str = "redis://127.0.0.1:6379/2"
 
-    KAFKA_BOOTSTRAP_SERVERS: str = "localhost:9092"
+    KAFKA_BOOTSTRAP_SERVERS: str = "127.0.0.1:9092"
     KAFKA_TOPIC_INGEST_RAW: str = "doc.ingest.raw"
     KAFKA_TOPIC_INGEST_CHUNKED: str = "doc.ingest.chunked"
     KAFKA_TOPIC_INGEST_DLQ: str = "doc.ingest.dlq"
 
-    S3_ENDPOINT_URL: str = "http://localhost:9000"
-    S3_PUBLIC_ENDPOINT_URL: str = "http://localhost:9000"
+    S3_ENDPOINT_URL: str = "http://127.0.0.1:9000"
+    S3_PUBLIC_ENDPOINT_URL: str = "http://127.0.0.1:9000"
     S3_ACCESS_KEY: str = "minioadmin"
     S3_SECRET_KEY: str = "minioadmin_secret_2026"
     S3_BUCKET_NAME: str = "enterprise-rag-docs"
     S3_REGION: str = "us-east-1"
 
-    QDRANT_HOST: str = "localhost"
+    QDRANT_HOST: str = "127.0.0.1"
     QDRANT_PORT: int = 6333
     QDRANT_GRPC_PORT: int = 6334
     QDRANT_COLLECTION_NAME: str = "enterprise_rag_chunks"

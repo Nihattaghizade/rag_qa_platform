@@ -16,6 +16,7 @@ import {
   Hash,
   Database,
   Layers,
+  Play,
 } from "lucide-react";
 import {
   API_BASE_URL,
@@ -30,13 +31,18 @@ export default function FilesPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const activeWorkersRef = useRef<Record<string, Worker>>({});
 
   const accessToken = useAppStore((s) => s.accessToken);
+  const setNavigating = useAppStore((s) => s.setNavigating);
   const selectedFileIds = useAppStore((s) => s.selectedFileIds);
   const toggleSelectedFileId = useAppStore((s) => s.toggleSelectedFileId);
   const liveFileProgress = useAppStore((s) => s.liveFileProgress);
   const upsertFileProgress = useAppStore((s) => s.upsertFileProgress);
+  const removeFileProgress = useAppStore((s) => s.removeFileProgress);
 
+  const [stagedFiles, setStagedFiles] = useState<File[]>([]);
+  const [isUploadingBatch, setIsUploadingBatch] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [inspectFileId, setInspectFileId] = useState<string | null>(null);
 
@@ -44,7 +50,7 @@ export default function FilesPage() {
     queryKey: ["files"],
     queryFn: () => apiRequest<FileRecordDTO[]>("/files", {}, accessToken),
     enabled: Boolean(accessToken),
-    refetchInterval: 4000,
+    refetchInterval: 3500,
   });
 
   const { data: usage } = useQuery<UserUsageTelemetryDTO>({
@@ -52,7 +58,7 @@ export default function FilesPage() {
     queryFn: () =>
       apiRequest<UserUsageTelemetryDTO>("/users/me/usage", {}, accessToken),
     enabled: Boolean(accessToken),
-    refetchInterval: 5000,
+    refetchInterval: 4000,
   });
 
   const { data: inspectedDetails, isLoading: loadingDetails } =
@@ -71,29 +77,56 @@ export default function FilesPage() {
   const filesUsed = files.length;
   const quotaReached = filesUsed >= maxFiles;
 
-  const handleFileUpload = (fileList: FileList | null) => {
-    if (!fileList || !accessToken) return;
+  const handleSelectFiles = (fileList: FileList | null) => {
+    if (!fileList) return;
     setUploadError(null);
+    const incoming = Array.from(fileList);
 
-    if (filesUsed + fileList.length > maxFiles) {
+    if (filesUsed + stagedFiles.length + incoming.length > maxFiles) {
       setUploadError(
-        `Upload limit reached (${filesUsed}/${maxFiles} files used). Delete a file or request a quota increase from the Admin.`
+        `Cannot stage ${incoming.length} file(s): your quota is ${maxFiles} files (${filesUsed} already uploaded, ${stagedFiles.length} staged).`
       );
       return;
     }
 
-    Array.from(fileList).forEach((file) => {
+    setStagedFiles((prev) => [...prev, ...incoming]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handleRemoveStaged = (idx: number) => {
+    setStagedFiles((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleStartUpload = () => {
+    if (!accessToken || stagedFiles.length === 0) return;
+    setUploadError(null);
+    setIsUploadingBatch(true);
+
+    const filesToUpload = [...stagedFiles];
+    setStagedFiles([]);
+
+    let remaining = filesToUpload.length;
+
+    filesToUpload.forEach((file) => {
       const tempJobId = `job_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const worker = new Worker("/upload-worker.js");
+      activeWorkersRef.current[tempJobId] = worker;
 
       worker.onmessage = (event) => {
         const { fileRecord, status, progress, error } = event.data;
         if (status === "FAILED" || error) {
-          setUploadError(error || "File upload failed");
+          setUploadError(error || `Upload failed for ${file.name}`);
           worker.terminate();
+          delete activeWorkersRef.current[tempJobId];
+          remaining -= 1;
+          if (remaining <= 0) setIsUploadingBatch(false);
           return;
         }
         if (fileRecord?.id) {
+          activeWorkersRef.current[fileRecord.id] = worker;
+          delete activeWorkersRef.current[tempJobId];
           upsertFileProgress({
             file_id: fileRecord.id,
             filename: file.name,
@@ -104,6 +137,9 @@ export default function FilesPage() {
           queryClient.invalidateQueries({ queryKey: ["files"] });
           queryClient.invalidateQueries({ queryKey: ["my_usage"] });
           worker.terminate();
+          delete activeWorkersRef.current[fileRecord.id];
+          remaining -= 1;
+          if (remaining <= 0) setIsUploadingBatch(false);
         }
       };
 
@@ -118,6 +154,13 @@ export default function FilesPage() {
 
   const handleDelete = async (fileId: string) => {
     if (!accessToken) return;
+
+    if (activeWorkersRef.current[fileId]) {
+      activeWorkersRef.current[fileId].terminate();
+      delete activeWorkersRef.current[fileId];
+    }
+
+    removeFileProgress(fileId);
     await apiRequest(`/files/${fileId}`, { method: "DELETE" }, accessToken);
     queryClient.invalidateQueries({ queryKey: ["files"] });
     queryClient.invalidateQueries({ queryKey: ["my_usage"] });
@@ -131,7 +174,7 @@ export default function FilesPage() {
             Tenant Document Repository
           </h1>
           <p className="text-sm text-slate-600 dark:text-slate-400">
-            Upload, inspect chunks, and scope documents for hybrid RAG retrieval.
+            Select PDF or DOCX files, review your staged queue, and click Start Upload &amp; Indexing.
           </p>
         </div>
 
@@ -156,7 +199,10 @@ export default function FilesPage() {
           </div>
 
           <button
-            onClick={() => router.push("/chat")}
+            onClick={() => {
+              setNavigating(true);
+              router.push("/chat");
+            }}
             className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-xs font-semibold text-white flex items-center gap-2 shadow-md shadow-emerald-600/20 transition"
           >
             <MessageSquare className="w-4 h-4" />
@@ -179,46 +225,97 @@ export default function FilesPage() {
         </div>
       )}
 
-      <div
-        onClick={() => {
-          if (!quotaReached) fileInputRef.current?.click();
-        }}
-        className={`border-2 border-dashed rounded-2xl p-8 text-center transition ${
-          quotaReached
-            ? "border-amber-500/40 bg-amber-500/5 cursor-not-allowed"
-            : "border-slate-300 dark:border-slate-700 hover:border-emerald-500/60 bg-white dark:bg-slate-900/50 cursor-pointer"
-        }`}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          accept=".pdf,.docx"
-          className="hidden"
-          onChange={(e) => handleFileUpload(e.target.files)}
-        />
-        <UploadCloud
-          className={`w-10 h-10 mx-auto mb-3 ${
-            quotaReached ? "text-amber-500" : "text-emerald-500"
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 space-y-4 shadow-sm">
+        <div
+          onClick={() => {
+            if (!quotaReached) fileInputRef.current?.click();
+          }}
+          className={`border-2 border-dashed rounded-2xl p-8 text-center transition ${
+            quotaReached
+              ? "border-amber-500/40 bg-amber-500/5 cursor-not-allowed"
+              : "border-slate-300 dark:border-slate-700 hover:border-emerald-500/60 bg-slate-50/60 dark:bg-slate-950/50 cursor-pointer"
           }`}
-        />
-        <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-          {quotaReached
-            ? `File Upload Limit Reached (${filesUsed}/${maxFiles} files)`
-            : "Click to select PDF or DOCX files (Background Web Worker Upload)"}
-        </p>
-        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-          SHA-256 deduplicated • 3-Stage Parent-Child Semantic Chunker • Dynamic &lt;15MB Qdrant Batch Upserts
-        </p>
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            accept=".pdf,.docx"
+            className="hidden"
+            onChange={(e) => handleSelectFiles(e.target.files)}
+          />
+          <UploadCloud
+            className={`w-10 h-10 mx-auto mb-3 ${
+              quotaReached ? "text-amber-500" : "text-emerald-500"
+            }`}
+          />
+          <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
+            {quotaReached
+              ? `File Upload Limit Reached (${filesUsed}/${maxFiles} files)`
+              : "Step 1: Click to Choose PDF or DOCX Files"}
+          </p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Chosen files are staged below. Processing starts only when you click &ldquo;Start Upload &amp; Indexing&rdquo;.
+          </p>
+        </div>
+
+        {stagedFiles.length > 0 && (
+          <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/30 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300">
+                Staged Files Ready to Upload ({stagedFiles.length})
+              </span>
+              <button
+                type="button"
+                onClick={handleStartUpload}
+                disabled={isUploadingBatch}
+                className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-xs font-bold text-white flex items-center gap-2 shadow-md transition"
+              >
+                {isUploadingBatch ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Play className="w-3.5 h-3.5" />
+                )}
+                <span>Step 2: Start Upload &amp; Indexing</span>
+              </button>
+            </div>
+
+            <div className="divide-y divide-slate-200 dark:divide-slate-800 text-xs">
+              {stagedFiles.map((sf, idx) => (
+                <div
+                  key={`${sf.name}_${idx}`}
+                  className="py-2 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-emerald-500" />
+                    <span className="font-medium text-slate-800 dark:text-slate-200">
+                      {sf.name}
+                    </span>
+                    <span className="text-slate-400">
+                      ({(sf.size / 1024).toFixed(1)} KB)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveStaged(idx)}
+                    className="text-slate-400 hover:text-red-500 p-1"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
         <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-800 dark:text-slate-200">
-            Indexed &amp; Processing Files ({files.length})
+            Uploaded &amp; Active Documents ({files.length})
           </h2>
           <span className="text-xs text-slate-500 dark:text-slate-400">
-            Select checkboxes to scope RAG queries or click Inspect to view extracted chunks
+            Deleting an active file immediately stops background parsing/embedding
           </span>
         </div>
 
@@ -229,7 +326,7 @@ export default function FilesPage() {
           </div>
         ) : files.length === 0 ? (
           <div className="p-10 text-center text-sm text-slate-500">
-            No documents uploaded yet. Upload a PDF or DOCX above to begin.
+            No documents uploaded yet. Choose a file above and click Start Upload.
           </div>
         ) : (
           <div className="divide-y divide-slate-200 dark:divide-slate-800">
@@ -315,10 +412,15 @@ export default function FilesPage() {
 
                     <button
                       onClick={() => handleDelete(file.id)}
-                      className="p-2 rounded-xl text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800"
-                      title="Delete file and vectors"
+                      className="px-3 py-1.5 rounded-xl border border-red-500/20 bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 text-xs font-semibold flex items-center gap-1.5 transition"
+                      title="Stop process & soft-delete file"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>
+                        {status !== "READY" && status !== "FAILED"
+                          ? "Stop & Delete"
+                          : "Delete"}
+                      </span>
                     </button>
                   </div>
                 </div>

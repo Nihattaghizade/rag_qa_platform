@@ -21,6 +21,7 @@ class ChatRepository:
             user_id=user_id,
             title=title,
             scoped_file_ids=[str(fid) for fid in (scoped_file_ids or [])],
+            is_deleted=0,
         )
         self.session.add(chat)
         await self.session.flush()
@@ -30,6 +31,7 @@ class ChatRepository:
         stmt = select(ChatSession).where(
             ChatSession.id == chat_id,
             ChatSession.user_id == user_id,
+            ChatSession.is_deleted == 0,
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -37,7 +39,11 @@ class ChatRepository:
     async def list_sessions(self, user_id: UUID) -> list[ChatSession]:
         stmt = (
             select(ChatSession)
-            .where(ChatSession.user_id == user_id, ChatSession.is_archived.is_(False))
+            .where(
+                ChatSession.user_id == user_id,
+                ChatSession.is_archived.is_(False),
+                ChatSession.is_deleted == 0,
+            )
             .order_by(ChatSession.updated_at.desc())
         )
         result = await self.session.execute(stmt)
@@ -57,6 +63,7 @@ class ChatRepository:
             role=role,
             content=content,
             status=status,
+            is_deleted=0,
         )
         self.session.add(msg)
         await self.session.flush()
@@ -66,6 +73,7 @@ class ChatRepository:
         stmt = select(ChatMessage).where(
             ChatMessage.id == message_id,
             ChatMessage.user_id == user_id,
+            ChatMessage.is_deleted == 0,
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -73,7 +81,11 @@ class ChatRepository:
     async def list_messages(self, user_id: UUID, chat_id: UUID, limit: int = 100) -> list[ChatMessage]:
         stmt = (
             select(ChatMessage)
-            .where(ChatMessage.chat_id == chat_id, ChatMessage.user_id == user_id)
+            .where(
+                ChatMessage.chat_id == chat_id,
+                ChatMessage.user_id == user_id,
+                ChatMessage.is_deleted == 0,
+            )
             .order_by(ChatMessage.created_at.asc())
             .limit(limit)
         )

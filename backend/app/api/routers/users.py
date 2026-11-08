@@ -15,18 +15,26 @@ async def get_my_usage_telemetry(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> UserUsageTelemetryResponse:
     async with get_tenant_db_session(current_user.user_id) as session:
-        user_res = await session.execute(select(User).where(User.id == current_user.user_id))
+        user_res = await session.execute(
+            select(User).where(User.id == current_user.user_id, User.is_deleted == 0)
+        )
         user = user_res.scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
         files_count_res = await session.execute(
-            select(func.count(FileRecord.id)).where(FileRecord.user_id == current_user.user_id)
+            select(func.count(FileRecord.id)).where(
+                FileRecord.user_id == current_user.user_id,
+                FileRecord.is_deleted == 0,
+            )
         )
         files_used = int(files_count_res.scalar() or 0)
 
         sessions_count_res = await session.execute(
-            select(func.count(ChatSession.id)).where(ChatSession.user_id == current_user.user_id)
+            select(func.count(ChatSession.id)).where(
+                ChatSession.user_id == current_user.user_id,
+                ChatSession.is_deleted == 0,
+            )
         )
         total_sessions = int(sessions_count_res.scalar() or 0)
 
@@ -34,6 +42,7 @@ async def get_my_usage_telemetry(
             select(func.count(ChatMessage.id)).where(
                 ChatMessage.user_id == current_user.user_id,
                 ChatMessage.role == "user",
+                ChatMessage.is_deleted == 0,
             )
         )
         questions_used = int(q_count_res.scalar() or 0)
@@ -46,6 +55,7 @@ async def get_my_usage_telemetry(
             ).where(
                 ChatMessage.user_id == current_user.user_id,
                 ChatMessage.role == "assistant",
+                ChatMessage.is_deleted == 0,
             )
         )
         prompt_sum, completion_sum, avg_lat = token_stats_res.one()
@@ -55,6 +65,7 @@ async def get_my_usage_telemetry(
             .where(
                 ChatMessage.user_id == current_user.user_id,
                 ChatMessage.role == "assistant",
+                ChatMessage.is_deleted == 0,
             )
             .order_by(ChatMessage.created_at.desc())
             .limit(15)
@@ -101,7 +112,9 @@ async def change_my_password(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> dict[str, str]:
     async with get_tenant_db_session(current_user.user_id) as session:
-        user_res = await session.execute(select(User).where(User.id == current_user.user_id))
+        user_res = await session.execute(
+            select(User).where(User.id == current_user.user_id, User.is_deleted == 0)
+        )
         user = user_res.scalar_one_or_none()
         if not user:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")

@@ -14,6 +14,7 @@ interface AuthResponse {
 export default function LoginPage() {
   const router = useRouter();
   const setAuth = useAppStore((s) => s.setAuth);
+  const setNavigating = useAppStore((s) => s.setNavigating);
 
   const [isRegister, setIsRegister] = useState(false);
   const [email, setEmail] = useState("");
@@ -52,16 +53,29 @@ export default function LoginPage() {
       });
 
       setAuth(res.access_token, res.user);
-      router.push("/files");
+      setNavigating(true);
+      router.push("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Authentication failed");
-    } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12">
+    <div className="min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 py-12 relative">
+      {loading && (
+        <div className="fixed inset-0 z-50 bg-slate-950/50 backdrop-blur-sm flex items-center justify-center">
+          <div className="px-6 py-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl flex items-center gap-3">
+            <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
+            <span className="text-sm font-semibold text-slate-900 dark:text-white">
+              {isRegister
+                ? "Creating your isolated tenant workspace..."
+                : "Authenticating & loading workspace..."}
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-8 shadow-xl">
         <div className="flex items-center gap-3 mb-6">
           <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center">

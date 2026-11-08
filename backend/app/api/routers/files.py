@@ -9,7 +9,12 @@ from sqlalchemy import func, select
 from app.api.deps import CurrentUserContext, get_current_user
 from app.clients.kafka_client import publish_kafka_event
 from app.clients.qdrant_client import delete_file_vectors
-from app.clients.redis_client import publish_file_progress
+from app.clients.redis_client import (
+    get_file_tasks,
+    mark_file_cancelled,
+    publish_file_progress,
+    register_file_task,
+)
 from app.clients.s3_client import (
     PART_SIZE_BYTES,
     complete_multipart_upload,
@@ -32,19 +37,23 @@ from app.schemas.dto import (
     FileUploadInitResponse,
     FileUploadPartUrl,
 )
+from app.workers.celery_app import celery_app
 from app.workers.parser_worker import parse_and_chunk_document_task
 
 router = APIRouter(prefix="/files", tags=["Files & Ingestion"])
 
 
 async def _enforce_file_upload_quota(session, user_id: UUID) -> None:
-    user_res = await session.execute(select(User).where(User.id == user_id))
+    user_res = await session.execute(select(User).where(User.id == user_id, User.is_deleted == 0))
     user_obj = user_res.scalar_one_or_none()
     if not user_obj:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     count_res = await session.execute(
-        select(func.count(FileRecord.id)).where(FileRecord.user_id == user_id)
+        select(func.count(FileRecord.id)).where(
+            FileRecord.user_id == user_id,
+            FileRecord.is_deleted == 0,
+        )
     )
     current_files = int(count_res.scalar() or 0)
     if current_files >= user_obj.max_files:
@@ -148,7 +157,9 @@ async def complete_file_upload(
     except Exception:
         pass
 
-    parse_and_chunk_document_task.delay(str(current_user.user_id), str(file_id))
+    task_res = parse_and_chunk_document_task.delay(str(current_user.user_id), str(file_id))
+    if task_res and task_res.id:
+        await register_file_task(str(file_id), str(task_res.id))
     return response_dto
 
 
@@ -222,7 +233,9 @@ async def direct_file_upload(
         response_dto = FileRecordResponse.model_validate(updated)
 
     await publish_file_progress(str(current_user.user_id), str(file_id), "UPLOADED", 10)
-    parse_and_chunk_document_task.delay(str(current_user.user_id), str(file_id))
+    task_res = parse_and_chunk_document_task.delay(str(current_user.user_id), str(file_id))
+    if task_res and task_res.id:
+        await register_file_task(str(file_id), str(task_res.id))
     return response_dto
 
 
@@ -249,7 +262,11 @@ async def get_file_details(
 
         stmt = (
             select(DocumentChunk)
-            .where(DocumentChunk.file_id == file_id, DocumentChunk.user_id == current_user.user_id)
+            .where(
+                DocumentChunk.file_id == file_id,
+                DocumentChunk.user_id == current_user.user_id,
+                DocumentChunk.is_deleted == 0,
+            )
             .order_by(DocumentChunk.chunk_index.asc())
             .limit(50)
         )
@@ -278,6 +295,16 @@ async def delete_file(
     file_id: UUID,
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> None:
+    file_id_str = str(file_id)
+    await mark_file_cancelled(file_id_str)
+
+    task_ids = await get_file_tasks(file_id_str)
+    for tid in task_ids:
+        try:
+            celery_app.control.revoke(tid, terminate=True)
+        except Exception:
+            pass
+
     async with get_tenant_db_session(current_user.user_id) as session:
         file_repo = FileRepository(session)
         user_repo = UserRepository(session)
@@ -287,7 +314,8 @@ async def delete_file(
         await user_repo.increment_storage_used(current_user.user_id, -record.size_bytes)
         s3_key = record.s3_key
 
-    await asyncio.to_thread(delete_file_vectors, str(current_user.user_id), str(file_id))
+    await publish_file_progress(str(current_user.user_id), file_id_str, "DELETED", 0)
+    await asyncio.to_thread(delete_file_vectors, str(current_user.user_id), file_id_str)
     try:
         await asyncio.to_thread(delete_s3_object, s3_key)
     except Exception:

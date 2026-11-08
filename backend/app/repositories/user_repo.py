@@ -12,12 +12,18 @@ class UserRepository:
         self.session = session
 
     async def get_by_email(self, email: str) -> User | None:
-        stmt = select(User).where(User.email == email.lower().strip())
+        stmt = select(User).where(
+            User.email == email.lower().strip(),
+            User.is_deleted == 0,
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
     async def get_by_id(self, user_id: UUID) -> User | None:
-        stmt = select(User).where(User.id == user_id)
+        stmt = select(User).where(
+            User.id == user_id,
+            User.is_deleted == 0,
+        )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -26,6 +32,7 @@ class UserRepository:
             email=email.lower().strip(),
             password_hash=password_hash,
             full_name=full_name.strip(),
+            is_deleted=0,
         )
         self.session.add(user)
         await self.session.flush()
@@ -43,6 +50,7 @@ class UserRepository:
             token_hash=token_hash,
             expires_at=expires_at,
             device_info=device_info,
+            is_deleted=0,
         )
         self.session.add(rt)
         await self.session.flush()
@@ -53,6 +61,7 @@ class UserRepository:
         stmt = select(RefreshToken).where(
             RefreshToken.token_hash == token_hash,
             RefreshToken.revoked_at.is_(None),
+            RefreshToken.is_deleted == 0,
             RefreshToken.expires_at > now,
         )
         result = await self.session.execute(stmt)
@@ -62,7 +71,7 @@ class UserRepository:
         stmt = (
             update(RefreshToken)
             .where(RefreshToken.token_hash == token_hash)
-            .values(revoked_at=datetime.now(timezone.utc))
+            .values(revoked_at=datetime.now(timezone.utc), is_deleted=1)
         )
         await self.session.execute(stmt)
 

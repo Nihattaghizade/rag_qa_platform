@@ -2,14 +2,21 @@ import asyncio
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUserContext, get_current_user
 from app.clients.qdrant_client import delete_user_vectors
-from app.clients.s3_client import delete_s3_object
+from app.clients.redis_client import mark_file_cancelled
 from app.db.session import get_db_session
-from app.models.entities import ChatMessage, DocumentChunk, FileRecord, User
+from app.models.entities import (
+    ChatMessage,
+    ChatSession,
+    DocumentChunk,
+    FileRecord,
+    RefreshToken,
+    User,
+)
 from app.schemas.dto import (
     AdminDashboardOverviewResponse,
     AdminUserSummaryItem,
@@ -23,7 +30,9 @@ async def require_admin(
     current_user: CurrentUserContext = Depends(get_current_user),
     session: AsyncSession = Depends(get_db_session),
 ) -> User:
-    res = await session.execute(select(User).where(User.id == current_user.user_id))
+    res = await session.execute(
+        select(User).where(User.id == current_user.user_id, User.is_deleted == 0)
+    )
     user = res.scalar_one_or_none()
     if not user or user.role != "admin":
         raise HTTPException(
@@ -38,7 +47,9 @@ async def get_admin_dashboard_overview(
     _admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_db_session),
 ) -> AdminDashboardOverviewResponse:
-    users_res = await session.execute(select(User).order_by(User.created_at.desc()))
+    users_res = await session.execute(
+        select(User).where(User.is_deleted == 0).order_by(User.created_at.desc())
+    )
     all_users = list(users_res.scalars().all())
 
     user_items: list[AdminUserSummaryItem] = []
@@ -58,7 +69,7 @@ async def get_admin_dashboard_overview(
             select(
                 func.count(FileRecord.id),
                 func.coalesce(func.sum(FileRecord.total_chunks), 0),
-            ).where(FileRecord.user_id == u.id)
+            ).where(FileRecord.user_id == u.id, FileRecord.is_deleted == 0)
         )
         u_files, u_chunks = f_res.one()
 
@@ -66,6 +77,7 @@ async def get_admin_dashboard_overview(
             select(func.count(ChatMessage.id)).where(
                 ChatMessage.user_id == u.id,
                 ChatMessage.role == "user",
+                ChatMessage.is_deleted == 0,
             )
         )
         u_questions = int(q_res.scalar() or 0)
@@ -74,7 +86,7 @@ async def get_admin_dashboard_overview(
             select(
                 func.coalesce(func.sum(ChatMessage.prompt_tokens), 0),
                 func.coalesce(func.sum(ChatMessage.completion_tokens), 0),
-            ).where(ChatMessage.user_id == u.id)
+            ).where(ChatMessage.user_id == u.id, ChatMessage.is_deleted == 0)
         )
         u_prompt, u_completion = t_res.one()
 
@@ -128,7 +140,9 @@ async def update_user_limits(
     _admin: User = Depends(require_admin),
     session: AsyncSession = Depends(get_db_session),
 ) -> AdminUserSummaryItem:
-    res = await session.execute(select(User).where(User.id == target_user_id))
+    res = await session.execute(
+        select(User).where(User.id == target_user_id, User.is_deleted == 0)
+    )
     u = res.scalar_one_or_none()
     if not u:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Target user not found")
@@ -149,7 +163,7 @@ async def update_user_limits(
         select(
             func.count(FileRecord.id),
             func.coalesce(func.sum(FileRecord.total_chunks), 0),
-        ).where(FileRecord.user_id == u.id)
+        ).where(FileRecord.user_id == u.id, FileRecord.is_deleted == 0)
     )
     u_files, u_chunks = f_res.one()
 
@@ -157,6 +171,7 @@ async def update_user_limits(
         select(func.count(ChatMessage.id)).where(
             ChatMessage.user_id == u.id,
             ChatMessage.role == "user",
+            ChatMessage.is_deleted == 0,
         )
     )
     u_questions = int(q_res.scalar() or 0)
@@ -165,7 +180,7 @@ async def update_user_limits(
         select(
             func.coalesce(func.sum(ChatMessage.prompt_tokens), 0),
             func.coalesce(func.sum(ChatMessage.completion_tokens), 0),
-        ).where(ChatMessage.user_id == u.id)
+        ).where(ChatMessage.user_id == u.id, ChatMessage.is_deleted == 0)
     )
     u_prompt, u_completion = t_res.one()
 
@@ -200,7 +215,9 @@ async def delete_user_account(
             detail="Admin cannot delete their own active account",
         )
 
-    res = await session.execute(select(User).where(User.id == target_user_id))
+    res = await session.execute(
+        select(User).where(User.id == target_user_id, User.is_deleted == 0)
+    )
     u = res.scalar_one_or_none()
     if not u:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -209,15 +226,32 @@ async def delete_user_account(
         text("SELECT set_config('app.current_user_id', :uid, true)"),
         {"uid": str(target_user_id)},
     )
-    files_res = await session.execute(select(FileRecord.s3_key).where(FileRecord.user_id == target_user_id))
-    s3_keys = [row[0] for row in files_res.all()]
+    files_res = await session.execute(
+        select(FileRecord.id).where(FileRecord.user_id == target_user_id, FileRecord.is_deleted == 0)
+    )
+    for (fid,) in files_res.all():
+        await mark_file_cancelled(str(fid))
 
-    await session.execute(delete(User).where(User.id == target_user_id))
+    await session.execute(
+        update(User).where(User.id == target_user_id).values(is_deleted=1, is_active=False)
+    )
+    await session.execute(
+        update(RefreshToken).where(RefreshToken.user_id == target_user_id).values(is_deleted=1)
+    )
+    await session.execute(
+        update(FileRecord)
+        .where(FileRecord.user_id == target_user_id)
+        .values(is_deleted=1, status="DELETED")
+    )
+    await session.execute(
+        update(DocumentChunk).where(DocumentChunk.user_id == target_user_id).values(is_deleted=1)
+    )
+    await session.execute(
+        update(ChatSession).where(ChatSession.user_id == target_user_id).values(is_deleted=1)
+    )
+    await session.execute(
+        update(ChatMessage).where(ChatMessage.user_id == target_user_id).values(is_deleted=1)
+    )
     await session.commit()
 
     await asyncio.to_thread(delete_user_vectors, str(target_user_id))
-    for key in s3_keys:
-        try:
-            await asyncio.to_thread(delete_s3_object, key)
-        except Exception:
-            pass

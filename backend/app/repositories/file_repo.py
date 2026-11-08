@@ -15,6 +15,7 @@ class FileRepository:
         stmt = select(FileRecord).where(
             FileRecord.user_id == user_id,
             FileRecord.content_sha256 == content_sha256,
+            FileRecord.is_deleted == 0,
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -23,6 +24,7 @@ class FileRepository:
         stmt = select(FileRecord).where(
             FileRecord.id == file_id,
             FileRecord.user_id == user_id,
+            FileRecord.is_deleted == 0,
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
@@ -30,7 +32,7 @@ class FileRepository:
     async def list_user_files(self, user_id: UUID) -> list[FileRecord]:
         stmt = (
             select(FileRecord)
-            .where(FileRecord.user_id == user_id)
+            .where(FileRecord.user_id == user_id, FileRecord.is_deleted == 0)
             .order_by(FileRecord.created_at.desc())
         )
         result = await self.session.execute(stmt)
@@ -59,6 +61,7 @@ class FileRepository:
             content_sha256=content_sha256,
             status=status,
             progress_pct=0,
+            is_deleted=0,
         )
         self.session.add(record)
         await self.session.flush()
@@ -84,15 +87,20 @@ class FileRepository:
         if error_message is not None:
             values["error_message"] = error_message
 
-        stmt = update(FileRecord).where(FileRecord.id == file_id).values(**values)
+        stmt = (
+            update(FileRecord)
+            .where(FileRecord.id == file_id, FileRecord.is_deleted == 0)
+            .values(**values)
+        )
         await self.session.execute(stmt)
 
     async def bulk_insert_chunks(self, chunks: list[DocumentChunk]) -> None:
-        await self.session.execute(
-            delete(DocumentChunk).where(DocumentChunk.file_id == chunks[0].file_id)
-        ) if chunks else None
-        self.session.add_all(chunks)
-        await self.session.flush()
+        if chunks:
+            await self.session.execute(
+                delete(DocumentChunk).where(DocumentChunk.file_id == chunks[0].file_id)
+            )
+            self.session.add_all(chunks)
+            await self.session.flush()
 
     async def get_chunks_by_ids(self, user_id: UUID, chunk_ids: list[UUID]) -> list[DocumentChunk]:
         if not chunk_ids:
@@ -100,6 +108,7 @@ class FileRepository:
         stmt = select(DocumentChunk).where(
             DocumentChunk.user_id == user_id,
             DocumentChunk.id.in_(chunk_ids),
+            DocumentChunk.is_deleted == 0,
         )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
@@ -107,6 +116,12 @@ class FileRepository:
     async def delete_file(self, user_id: UUID, file_id: UUID) -> FileRecord | None:
         record = await self.get_by_id(user_id, file_id)
         if record:
-            await self.session.delete(record)
+            record.is_deleted = 1
+            record.status = "DELETED"
+            await self.session.execute(
+                update(DocumentChunk)
+                .where(DocumentChunk.file_id == file_id, DocumentChunk.user_id == user_id)
+                .values(is_deleted=1)
+            )
             await self.session.flush()
         return record

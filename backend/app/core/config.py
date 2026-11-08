@@ -1,4 +1,4 @@
-from functools import lru_cache
+    from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
 
     JWT_SECRET_KEY: str = "1229ffead95930b8abcc7572e29effd7e2d346a345945915be3414b358827f71"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     POSTGRES_USER: str = "rag_admin"

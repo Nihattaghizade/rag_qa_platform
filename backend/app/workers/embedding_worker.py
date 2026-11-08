@@ -5,8 +5,12 @@ from uuid import UUID
 from qdrant_client import models
 from sqlalchemy import select
 
-from app.clients.qdrant_client import get_qdrant_client, init_qdrant_collection
-from app.clients.redis_client import publish_file_progress
+from app.clients.qdrant_client import (
+    delete_file_vectors,
+    get_qdrant_client,
+    init_qdrant_collection,
+)
+from app.clients.redis_client import is_file_cancelled, publish_file_progress
 from app.core.config import settings
 from app.db.session import get_tenant_db_session
 from app.models.entities import DocumentChunk
@@ -19,6 +23,14 @@ MAX_QDRANT_BATCH_BYTES = 15 * 1024 * 1024
 MAX_QDRANT_BATCH_POINTS = 64
 
 
+async def _is_aborted(user_id: UUID, file_id: UUID) -> bool:
+    if await is_file_cancelled(str(file_id)):
+        return True
+    async with get_tenant_db_session(user_id) as session:
+        repo = FileRepository(session)
+        return (await repo.get_by_id(user_id, file_id)) is None
+
+
 def _estimate_point_bytes(point: models.PointStruct) -> int:
     vector_dict = point.vector if isinstance(point.vector, dict) else {}
     dense_len = len(vector_dict.get("dense", [])) * 8
@@ -29,21 +41,31 @@ def _estimate_point_bytes(point: models.PointStruct) -> int:
 
 
 async def _upsert_points_under_payload_limit(
+    user_id: UUID,
+    file_id: UUID,
     user_id_str: str,
     file_id_str: str,
     chunks: list[DocumentChunk],
-) -> int:
+) -> int | None:
     qdrant = get_qdrant_client()
     total_chunks = len(chunks)
     total_indexed = 0
     embed_window = 64
 
     for start_idx in range(0, total_chunks, embed_window):
+        if await _is_aborted(user_id, file_id):
+            await asyncio.to_thread(delete_file_vectors, user_id_str, file_id_str)
+            return None
+
         window_chunks = chunks[start_idx : start_idx + embed_window]
         texts = [c.child_text for c in window_chunks]
 
         dense_vectors = await asyncio.to_thread(LocalONNXModelRegistry.embed_dense_batch, texts)
         sparse_vectors = await asyncio.to_thread(LocalONNXModelRegistry.embed_sparse_batch, texts)
+
+        if await _is_aborted(user_id, file_id):
+            await asyncio.to_thread(delete_file_vectors, user_id_str, file_id_str)
+            return None
 
         current_batch: list[models.PointStruct] = []
         current_batch_bytes = 0
@@ -108,12 +130,19 @@ async def _run_embed_and_index(user_id_str: str, file_id_str: str) -> dict[str, 
     file_id = UUID(file_id_str)
 
     try:
+        if await _is_aborted(user_id, file_id):
+            return {"file_id": file_id_str, "status": "ABORTED"}
+
         await asyncio.to_thread(init_qdrant_collection)
 
         async with get_tenant_db_session(user_id) as session:
             stmt = (
                 select(DocumentChunk)
-                .where(DocumentChunk.file_id == file_id, DocumentChunk.user_id == user_id)
+                .where(
+                    DocumentChunk.file_id == file_id,
+                    DocumentChunk.user_id == user_id,
+                    DocumentChunk.is_deleted == 0,
+                )
                 .order_by(DocumentChunk.chunk_index.asc())
             )
             res = await session.execute(stmt)
@@ -127,10 +156,15 @@ async def _run_embed_and_index(user_id_str: str, file_id_str: str) -> dict[str, 
             return {"file_id": file_id_str, "indexed_points": 0}
 
         indexed_count = await _upsert_points_under_payload_limit(
+            user_id=user_id,
+            file_id=file_id,
             user_id_str=user_id_str,
             file_id_str=file_id_str,
             chunks=chunks,
         )
+
+        if indexed_count is None:
+            return {"file_id": file_id_str, "status": "ABORTED"}
 
         async with get_tenant_db_session(user_id) as session:
             repo = FileRepository(session)
@@ -148,6 +182,10 @@ async def _run_embed_and_index(user_id_str: str, file_id_str: str) -> dict[str, 
         return {"file_id": file_id_str, "indexed_points": indexed_count}
 
     except Exception as exc:
+        if await _is_aborted(user_id, file_id):
+            await asyncio.to_thread(delete_file_vectors, user_id_str, file_id_str)
+            return {"file_id": file_id_str, "status": "ABORTED"}
+
         async with get_tenant_db_session(user_id) as session:
             repo = FileRepository(session)
             await repo.update_status(

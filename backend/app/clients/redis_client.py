@@ -13,6 +13,41 @@ def get_redis_client() -> aioredis.Redis:
     )
 
 
+async def mark_file_cancelled(file_id: str) -> None:
+    client = get_redis_client()
+    try:
+        await client.set(f"file:cancel:{file_id}", "1", ex=3600)
+    finally:
+        await client.aclose()
+
+
+async def is_file_cancelled(file_id: str) -> bool:
+    client = get_redis_client()
+    try:
+        val = await client.get(f"file:cancel:{file_id}")
+        return val == "1"
+    finally:
+        await client.aclose()
+
+
+async def register_file_task(file_id: str, task_id: str) -> None:
+    client = get_redis_client()
+    try:
+        await client.sadd(f"file:tasks:{file_id}", task_id)
+        await client.expire(f"file:tasks:{file_id}", 3600)
+    finally:
+        await client.aclose()
+
+
+async def get_file_tasks(file_id: str) -> list[str]:
+    client = get_redis_client()
+    try:
+        members = await client.smembers(f"file:tasks:{file_id}")
+        return list(members) if members else []
+    finally:
+        await client.aclose()
+
+
 async def publish_file_progress(
     user_id: str,
     file_id: str,

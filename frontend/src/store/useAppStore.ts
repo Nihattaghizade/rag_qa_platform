@@ -26,6 +26,7 @@ export interface LiveStreamingMessage {
 
 interface AppState {
   theme: "dark" | "light";
+  isNavigating: boolean;
   accessToken: string | null;
   user: UserDTO | null;
   selectedFileIds: string[];
@@ -34,12 +35,14 @@ interface AppState {
   liveStreams: Record<string, LiveStreamingMessage>;
 
   toggleTheme: () => void;
+  setNavigating: (val: boolean) => void;
   setAuth: (token: string, user: UserDTO) => void;
   clearAuth: () => void;
   toggleSelectedFileId: (fileId: string) => void;
   setSelectedFileIds: (ids: string[]) => void;
   setActiveChatId: (chatId: string | null) => void;
   upsertFileProgress: (item: LiveFileProgress) => void;
+  removeFileProgress: (fileId: string) => void;
   initLiveStream: (chatId: string, assistantMessageId: string) => void;
   appendStreamToken: (assistantMessageId: string, delta: string) => void;
   setStreamMeta: (
@@ -59,6 +62,7 @@ export const useAppStore = create<AppState>()(
   persist(
     (set) => ({
       theme: "dark",
+      isNavigating: false,
       accessToken: null,
       user: null,
       selectedFileIds: [],
@@ -71,10 +75,13 @@ export const useAppStore = create<AppState>()(
           theme: state.theme === "dark" ? "light" : "dark",
         })),
 
+      setNavigating: (val) => set({ isNavigating: val }),
+
       setAuth: (token, user) => set({ accessToken: token, user }),
       clearAuth: () =>
         set((state) => ({
           theme: state.theme,
+          isNavigating: false,
           accessToken: null,
           user: null,
           selectedFileIds: [],
@@ -103,6 +110,16 @@ export const useAppStore = create<AppState>()(
             },
           },
         })),
+
+      removeFileProgress: (fileId) =>
+        set((state) => {
+          const next = { ...state.liveFileProgress };
+          delete next[fileId];
+          return {
+            liveFileProgress: next,
+            selectedFileIds: state.selectedFileIds.filter((id) => id !== fileId),
+          };
+        }),
 
       initLiveStream: (chatId, assistantMessageId) =>
         set((state) => ({

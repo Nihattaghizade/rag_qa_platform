@@ -5,7 +5,15 @@ DROP TABLE IF EXISTS chat_sessions CASCADE;
 DROP TABLE IF EXISTS document_chunks CASCADE;
 DROP TABLE IF EXISTS files CASCADE;
 DROP TABLE IF EXISTS refresh_tokens CASCADE;
+DROP TABLE IF EXISTS message_feedback CASCADE;
+DROP TABLE IF EXISTS ragas_evaluations CASCADE;
+DROP TABLE IF EXISTS audit_token_ledger CASCADE;
+DROP TABLE IF EXISTS document_parent_chunks CASCADE;
+DROP TABLE IF EXISTS file_ingestion_jobs CASCADE;
+DROP TABLE IF EXISTS user_files CASCADE;
+DROP TABLE IF EXISTS user_sessions CASCADE;
 DROP TABLE IF EXISTS users CASCADE;
+DROP TABLE IF EXISTS tenants CASCADE;
 
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -14,6 +22,7 @@ CREATE TABLE users (
     full_name VARCHAR(120) NOT NULL,
     role VARCHAR(24) NOT NULL DEFAULT 'user',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
     max_files INTEGER NOT NULL DEFAULT 3,
     max_questions INTEGER NOT NULL DEFAULT 10,
     storage_quota_bytes BIGINT NOT NULL DEFAULT 5368709120,
@@ -23,12 +32,14 @@ CREATE TABLE users (
 );
 
 CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_is_deleted ON users(is_deleted);
 
 CREATE TABLE refresh_tokens (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     token_hash VARCHAR(64) UNIQUE NOT NULL,
     device_info VARCHAR(255),
+    is_deleted INTEGER NOT NULL DEFAULT 0,
     expires_at TIMESTAMPTZ NOT NULL,
     revoked_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -50,12 +61,14 @@ CREATE TABLE files (
     total_pages INTEGER,
     total_chunks INTEGER NOT NULL DEFAULT 0,
     error_message TEXT,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_files_user_sha256 UNIQUE (user_id, content_sha256)
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE UNIQUE INDEX uq_files_user_sha256_active ON files(user_id, content_sha256) WHERE is_deleted = 0;
 CREATE INDEX idx_files_user_id ON files(user_id);
+CREATE INDEX idx_files_is_deleted ON files(is_deleted);
 
 CREATE TABLE document_chunks (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -68,6 +81,7 @@ CREATE TABLE document_chunks (
     child_text TEXT NOT NULL,
     token_count INTEGER NOT NULL,
     metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_file_chunk_idx UNIQUE (file_id, chunk_index)
 );
@@ -82,6 +96,7 @@ CREATE TABLE chat_sessions (
     rolling_summary TEXT,
     scoped_file_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
     is_archived BOOLEAN NOT NULL DEFAULT FALSE,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -101,6 +116,7 @@ CREATE TABLE chat_messages (
     prompt_tokens INTEGER NOT NULL DEFAULT 0,
     completion_tokens INTEGER NOT NULL DEFAULT 0,
     latency_ms INTEGER,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -127,7 +143,6 @@ CREATE POLICY rls_chat_sessions_tenant ON chat_sessions
 CREATE POLICY rls_chat_messages_tenant ON chat_messages
     USING (user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid)
     WITH CHECK (user_id = NULLIF(current_setting('app.current_user_id', true), '')::uuid);
-
 
 
 

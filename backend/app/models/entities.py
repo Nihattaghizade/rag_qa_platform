@@ -28,6 +28,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(120), nullable=False)
     role: Mapped[str] = mapped_column(String(24), nullable=False, default="user")
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    is_deleted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     max_files: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     max_questions: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
     storage_quota_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False, default=5368709120)
@@ -47,6 +48,7 @@ class RefreshToken(Base):
     )
     token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     device_info: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_deleted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -54,7 +56,6 @@ class RefreshToken(Base):
 
 class FileRecord(Base):
     __tablename__ = "files"
-    __table_args__ = (UniqueConstraint("user_id", "content_sha256", name="uq_files_user_sha256"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -71,6 +72,7 @@ class FileRecord(Base):
     total_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)
     total_chunks: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_deleted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -95,6 +97,7 @@ class DocumentChunk(Base):
     child_text: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    is_deleted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
@@ -109,6 +112,7 @@ class ChatSession(Base):
     rolling_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     scoped_file_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_deleted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
@@ -134,4 +138,5 @@ class ChatMessage(Base):
     prompt_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     completion_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_deleted: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

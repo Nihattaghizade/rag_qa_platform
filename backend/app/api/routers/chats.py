@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import func, select, update
 
 from app.api.deps import CurrentUserContext, get_current_user
 from app.db.session import get_tenant_db_session
@@ -51,10 +51,20 @@ async def delete_chat_session(
 ) -> None:
     async with get_tenant_db_session(current_user.user_id) as session:
         await session.execute(
-            delete(ChatSession).where(
+            update(ChatSession)
+            .where(
                 ChatSession.id == chat_id,
                 ChatSession.user_id == current_user.user_id,
             )
+            .values(is_deleted=1)
+        )
+        await session.execute(
+            update(ChatMessage)
+            .where(
+                ChatMessage.chat_id == chat_id,
+                ChatMessage.user_id == current_user.user_id,
+            )
+            .values(is_deleted=1)
         )
 
 
@@ -83,7 +93,9 @@ async def submit_chat_message(
     current_user: CurrentUserContext = Depends(get_current_user),
 ) -> ChatMessageSubmitResponse:
     async with get_tenant_db_session(current_user.user_id) as session:
-        user_res = await session.execute(select(User).where(User.id == current_user.user_id))
+        user_res = await session.execute(
+            select(User).where(User.id == current_user.user_id, User.is_deleted == 0)
+        )
         user_obj = user_res.scalar_one_or_none()
         if not user_obj:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
@@ -92,6 +104,7 @@ async def submit_chat_message(
             select(func.count(ChatMessage.id)).where(
                 ChatMessage.user_id == current_user.user_id,
                 ChatMessage.role == "user",
+                ChatMessage.is_deleted == 0,
             )
         )
         questions_used = int(q_count_res.scalar() or 0)

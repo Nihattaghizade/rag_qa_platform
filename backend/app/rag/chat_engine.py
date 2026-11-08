@@ -10,21 +10,24 @@ from app.core.config import settings
 from app.rag.hybrid_retriever import RetrievedContextChunk, TwoStageHybridRetriever
 from app.rag.query_router import ConversationalRAGRouter
 from app.rag.semantic_cache import FourTierSemanticCache
+from app.repositories.file_repo import FileRepository
 
 RAG_SYNTHESIS_SYSTEM_PROMPT = """You are an Enterprise Conversational Document Assistant.
-You answer questions strictly grounded in the user's uploaded documents provided in the <context> block, while maintaining natural conversational flexibility for follow-ups, summaries, comparisons, and explanations of those documents.
+You answer questions grounded in the user's uploaded documents provided in the <context> block, while maintaining natural conversational flexibility for follow-ups, summaries, comparisons, translations, and explanations of those documents.
 
 Rules:
 1. Ground every factual claim in the provided <context> chunks and cite sources inline using bracketed numbers like [1], [2].
-2. If the user asks a follow-up ("explain that simply", "put that in a table", "summarize the previous point"), use both the <context> chunks and recent conversation history naturally.
-3. Never invent facts not present in the <context> or conversation history. If the uploaded documents do not contain the answer, clearly state that the information was not found in the uploaded files.
-4. Do NOT write unrelated software code, solve general math problems, or answer off-topic general knowledge questions."""
+2. Even if only partial or related information is present in the <context>, synthesize and explain what the uploaded documents say about the topic clearly and helpfully.
+3. If the user asks a follow-up ("explain that simply", "put that in a table", "summarize the previous point", "what is this document about?"), use both the <context> chunks and recent conversation history naturally.
+4. Never invent facts outside the <context>. Only if the <context> chunks have zero connection to the question, state what topics the uploaded documents actually cover instead.
+5. Do NOT write unrelated standalone software code or solve unrelated math homework."""
 
 
 class ConversationalRAGChatEngine:
     def __init__(self, db_session: AsyncSession) -> None:
         self.db_session = db_session
         self.retriever = TwoStageHybridRetriever(db_session)
+        self.file_repo = FileRepository(db_session)
         self.router = ConversationalRAGRouter()
         self.openai = AsyncOpenAI(api_key=settings.OPENAI_API_KEY)
 
@@ -41,11 +44,38 @@ class ConversationalRAGChatEngine:
         start_ts = time.perf_counter()
         stream_id = str(assistant_msg_id)
 
+        user_files = await self.file_repo.list_user_files(user_id)
+        ready_filenames = [f.filename for f in user_files if f.status == "READY"]
+
         plan = await self.router.route_and_condense(
             user_query=user_query,
             rolling_summary=rolling_summary,
             recent_messages=recent_messages,
+            available_filenames=ready_filenames,
         )
+
+        retrieved_map: dict[UUID, RetrievedContextChunk] = {}
+        queries_to_run = (
+            plan.sub_queries if plan.query_mode == "MULTI_DOC_SYNTHESIS" else [plan.standalone_query]
+        )
+        if user_query.strip() not in queries_to_run:
+            queries_to_run.append(user_query.strip())
+
+        for q in queries_to_run:
+            chunks = await self.retriever.retrieve(
+                user_id=user_id,
+                query=q,
+                scoped_file_ids=scoped_file_ids,
+                top_k=6,
+            )
+            for c in chunks:
+                if c.chunk_id not in retrieved_map or c.rerank_score > retrieved_map[c.chunk_id].rerank_score:
+                    retrieved_map[c.chunk_id] = c
+
+        final_chunks = sorted(retrieved_map.values(), key=lambda x: x.rerank_score, reverse=True)[:6]
+
+        if plan.query_mode == "OUT_OF_SCOPE_GUARDRAIL" and final_chunks:
+            plan.query_mode = "SINGLE_STEP_RAG"
 
         await append_chat_stream_event(
             stream_id,
@@ -104,23 +134,6 @@ class ConversationalRAGChatEngine:
                 "latency_ms": latency_ms,
             }
 
-        retrieved_map: dict[UUID, RetrievedContextChunk] = {}
-        queries_to_run = (
-            plan.sub_queries if plan.query_mode == "MULTI_DOC_SYNTHESIS" else [plan.standalone_query]
-        )
-        for q in queries_to_run:
-            chunks = await self.retriever.retrieve(
-                user_id=user_id,
-                query=q,
-                scoped_file_ids=scoped_file_ids,
-                top_k=6,
-            )
-            for c in chunks:
-                if c.chunk_id not in retrieved_map or c.rerank_score > retrieved_map[c.chunk_id].rerank_score:
-                    retrieved_map[c.chunk_id] = c
-
-        final_chunks = sorted(retrieved_map.values(), key=lambda x: x.rerank_score, reverse=True)[:6]
-
         citations: list[dict[str, Any]] = []
         context_blocks: list[str] = []
         for idx, ch in enumerate(final_chunks, start=1):
@@ -145,6 +158,7 @@ class ConversationalRAGChatEngine:
         history_str = "\n".join(f"{m['role'].upper()}: {m['content']}" for m in recent_messages[-6:])
 
         user_prompt = (
+            f"Uploaded Files Ready: {', '.join(ready_filenames) if ready_filenames else 'None'}\n\n"
             f"<rolling_summary>\n{rolling_summary or 'None'}\n</rolling_summary>\n\n"
             f"<recent_conversation>\n{history_str or 'None'}\n</recent_conversation>\n\n"
             f"<context>\n{context_str}\n</context>\n\n"

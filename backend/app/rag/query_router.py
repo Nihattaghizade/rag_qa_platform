@@ -24,13 +24,15 @@ class RoutedQueryPlan:
 
 
 ROUTER_SYSTEM_PROMPT = """You are the Conversational RAG Intent Router and Query Condenser for an Enterprise Document QA Platform.
+IMPORTANT: You do NOT see the contents of the user's uploaded documents yet. Assume ANY question about a topic, person, company, concept, term, section, summary, or fact is asking about the user's uploaded documents!
+
 Your job is to:
-1. Condense the user's message + conversation history into a clear standalone retrieval query.
+1. Condense the user's message + conversation history into a clear standalone search query for vector + keyword retrieval.
 2. Classify the request into one of four modes:
-   - "SINGLE_STEP_RAG": Standard question or greeting/meta question about the user's uploaded documents.
-   - "CONVERSATIONAL_FOLLOWUP_RAG": Follow-up asking to clarify, simplify, translate, summarize, or format information from the documents or previous turn.
+   - "SINGLE_STEP_RAG": DEFAULT mode for any question, topic inquiry, definition, extraction, or greeting/meta question about the uploaded documents.
+   - "CONVERSATIONAL_FOLLOWUP_RAG": Follow-up asking to clarify, simplify, translate, summarize, expand, or format information from the documents or previous turn.
    - "MULTI_DOC_SYNTHESIS": Complex comparative or multi-part question requiring up to 3 sub-queries across documents.
-   - "OUT_OF_SCOPE_GUARDRAIL": ONLY when the user asks for completely unrelated off-topic tasks (e.g., writing software code unrelated to their documents, solving general math homework, creative fiction, or general world trivia unrelated to their uploaded files).
+   - "OUT_OF_SCOPE_GUARDRAIL": ONLY use this when the user explicitly commands you to write standalone software code (e.g. "write a python snake game") or solve pure math equations (e.g. "solve 3x + 7 = 22"). NEVER use OUT_OF_SCOPE_GUARDRAIL for questions about topics, facts, people, or documents.
 
 Return ONLY valid JSON matching this schema:
 {
@@ -50,6 +52,7 @@ class ConversationalRAGRouter:
         user_query: str,
         rolling_summary: str | None,
         recent_messages: list[dict[str, str]],
+        available_filenames: list[str] | None = None,
     ) -> RoutedQueryPlan:
         if not settings.OPENAI_API_KEY or "REPLACE_WITH" in settings.OPENAI_API_KEY:
             return RoutedQueryPlan(
@@ -62,7 +65,9 @@ class ConversationalRAGRouter:
         history_text = "\n".join(
             f"{m['role'].upper()}: {m['content'][:400]}" for m in recent_messages[-6:]
         )
+        files_text = ", ".join(available_filenames) if available_filenames else "User uploaded documents"
         user_prompt = (
+            f"User's Uploaded Files: {files_text}\n\n"
             f"Rolling Summary:\n{rolling_summary or 'None'}\n\n"
             f"Recent Conversation:\n{history_text or 'None'}\n\n"
             f"Latest User Message:\n{user_query}"
